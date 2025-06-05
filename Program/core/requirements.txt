@@ -1,0 +1,10 @@
+
+## Explicación del requirements.txt
+
+1. **requests**: Para realizar las llamadas HTTP a la API RESTCONF
+2. **matplotlib**: Para generar los gráficos de ancho de banda
+
+Para instalar las dependencias:
+
+```bash
+pip install -r requirements.txt
