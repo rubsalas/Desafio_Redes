@@ -1,0 +1,52 @@
+module network-monitor-extensions {
+  yang-version 1.1;
+  namespace "urn:cisco:network-monitor-extensions";
+  prefix netmon-ext;
+
+  import network-monitor {
+    prefix netmon;
+  }
+
+  organization "Cisco";
+  contact "support@cisco.com";
+  description "Extensions for Network Monitoring System";
+
+  revision 2023-11-01 {
+    description "Initial version";
+  }
+
+  augment "/netmon:interfaces/netmon:interface" {
+    description "Additional interface metrics";
+    leaf rx-utilization {
+      type decimal64 {
+        fraction-digits 2;
+      }
+      units "percent";
+      config false;
+      description "Receive bandwidth utilization percentage";
+    }
+    leaf tx-utilization {
+      type decimal64 {
+        fraction-digits 2;
+      }
+      units "percent";
+      config false;
+      description "Transmit bandwidth utilization percentage";
+    }
+  }
+
+  augment "/netmon:monitor-config" {
+    description "Additional configuration options";
+    leaf history-limit {
+      type uint32;
+      default 1440;
+      description "Maximum number of history points to retain";
+    }
+    leaf alert-retention {
+      type uint32;
+      units "hours";
+      default 24;
+      description "How long to keep resolved alerts";
+    }
+  }
+}
