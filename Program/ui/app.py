@@ -1,15 +1,14 @@
-"""
-ui/app.py – GUI
-=============================================
+"""ui/app.py – *Desafío Redes*
+================================
+Versión con IPv6 y gráfico de errores.
 
-Interfaz completa con:
-* Barra superior: título, estado, botones *Start/Stop* y hora del último snapshot.
-* Pestañas: tabla de interfaces y gráfico de ancho de banda en tiempo real.
-* Panel inferior: lista de alertas.
+Paginas (máx. 4):
+* Tabla horizontal con Status, IPv4, IPv6, Speed, Description.
+* Notebook interno con dos tabs:
+  - *Bandwidth %* (línea)
+  - *Errors* (línea acumulada)
 
-La aplicación recibe instantáneas de un objeto monitor
-mediante un callback thread-safe y actualiza los widgets usando
-`queue.Queue + after()`.
+Mantiene barra superior y lista de alertas.
 """
 from __future__ import annotations
 
@@ -20,207 +19,195 @@ from typing import Any, Dict, List, Tuple
 
 import matplotlib
 import numpy as np
-from tkinter import ttk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
+from tkinter import ttk
 
-matplotlib.use("TkAgg")  # backend Tkinter
+matplotlib.use("TkAgg")
 
 __all__ = ["App"]
 
-# ───────────────────────────────────────────────────────────────────────────────
-# Frames especializados
-# ───────────────────────────────────────────────────────────────────────────────
-
+###############################################################################
+#  Frames reutilizables                                                       #
+###############################################################################
 
 class TopBar(ttk.Frame):
-    """Encabezado con título, estado del monitor y botones."""
-
-    def __init__(self, master: tk.Misc, *, start_cb, stop_cb) -> None:  # type: ignore[name-defined]
+    def __init__(self, master: tk.Misc, start_cb, stop_cb):  # type: ignore[name-defined]
         super().__init__(master, padding=8)
-
-        self._start_cb = start_cb
-        self._stop_cb = stop_cb
-
+        self._start_cb, self._stop_cb = start_cb, stop_cb
         self.columnconfigure(2, weight=1)
 
-        ttk.Label(self, text="Desafío Redes", font=("Helvetica", 18, "bold")).grid(
-            row=0, column=0, sticky="w"
-        )
-
-        # LED de estado (● rojo/verde)
-        self._led = ttk.Label(self, text="●", foreground="red", font=("Helvetica", 14))
+        ttk.Label(self, text="Desafío Redes", font=("Helvetica", 18, "bold")).grid(row=0, column=0, sticky="w")
+        self._led = ttk.Label(self, text="●", font=("Helvetica", 14), foreground="red")
         self._led.grid(row=0, column=1, padx=6)
-
-        # Última hora
         self._lbl_time = ttk.Label(self, text="—")
         self._lbl_time.grid(row=0, column=2, sticky="e", padx=6)
-
-        self._btn_start = ttk.Button(self, text="Start", command=self._start)
+        self._btn_start = ttk.Button(self, text="Start", command=self._start_cb)
         self._btn_start.grid(row=0, column=3, padx=(6, 3))
-        self._btn_stop = ttk.Button(self, text="Stop", command=self._stop, state="disabled")
+        self._btn_stop = ttk.Button(self, text="Stop", command=self._stop_cb, state="disabled")
         self._btn_stop.grid(row=0, column=4, padx=(3, 6))
 
-    # ── API pública ───────────────────────────────────────────────────────────
-    def set_running(self, running: bool) -> None:
+    def set_running(self, running: bool):
         self._led.configure(foreground="green" if running else "red")
         self._btn_start.configure(state="disabled" if running else "normal")
         self._btn_stop.configure(state="normal" if running else "disabled")
 
-    def set_timestamp(self, ts: str) -> None:
+    def set_timestamp(self, ts: str):
         self._lbl_time.configure(text=ts)
 
-    # ── callbacks internos ────────────────────────────────────────────────────
-    def _start(self):
-        self._start_cb()
 
-    def _stop(self):
-        self._stop_cb()
-
-
-class InterfacesFrame(ttk.Frame):
-    """Tabla con inventario de interfaces."""
-
-    COLS = ("name", "status", "ip", "speed", "description")
-
-    def __init__(self, master: tk.Misc, *, on_select) -> None:  # type: ignore[name-defined]
-        super().__init__(master, padding=10)
-        self._tree = ttk.Treeview(self, columns=self.COLS, show="headings", height=12)
-        self._tree.pack(fill="both", expand=True)
-
-        headers = {
-            "name": "Interface",
-            "status": "Status",
-            "ip": "IP Address",
-            "speed": "Mb/s",
-            "description": "Description",
-        }
-        for col in self.COLS:
-            self._tree.heading(col, text=headers[col])
-            self._tree.column(col, anchor="center")
-
-        # Colores de fila según estado
-        self._tree.tag_configure("up", background="#d7f8d7")
-        self._tree.tag_configure("down", background="#f8d7d7")
-
-        self._tree.bind("<<TreeviewSelect>>", lambda e: self._on_select(on_select))
-
-    def _on_select(self, cb):
-        sel = self._tree.selection()
-        if sel:
-            iid = sel[0]
-            iface = self._tree.item(iid, "values")[0]
-            cb(iface)
-
-    # API
-    def update(self, interfaces: Dict[str, Dict[str, Any]]):
-        self._tree.delete(*self._tree.get_children())
-        for intf in interfaces.values():
-            status = intf.get("status", "down")
-            self._tree.insert(
-                "",
-                "end",
-                values=(
-                    intf["name"],
-                    status,
-                    intf.get("ip", "—"),
-                    intf.get("speed", "—"),
-                    intf.get("description", ""),
-                ),
-                tags=(status,),
-            )
-
-
-class BandwidthFrame(ttk.Frame):
-    """Gráfico de uso de ancho de banda para una interfaz."""
-
-    def __init__(self, master: tk.Misc):  # type: ignore[name-defined]
-        super().__init__(master, padding=10)
+class _LinePlot(ttk.Frame):
+    """Base para plots con Matplotlib."""
+    def __init__(self, master: tk.Misc, y_label: str):
+        super().__init__(master)
+        self._iface: str | None = None
         self._fig = Figure(figsize=(5, 3), dpi=100)
         self._ax = self._fig.add_subplot(111)
-        self._ax.set_ylabel("% BW usage")
-        self._ax.set_ylim(0, 100)
+        self._ax.set_ylabel(y_label)
         self._line = None
-        self._selected: str | None = None
-
         canvas = FigureCanvasTkAgg(self._fig, master=self)
         canvas.draw()
         canvas.get_tk_widget().pack(fill="both", expand=True)
         self._canvas = canvas
 
-    def select_interface(self, name: str):
-        self._selected = name
+    def _reset(self, title: str, y_label: str | None = None, ylim: Tuple[int,int] | None = None):
         self._ax.clear()
-        self._ax.set_title(f"Bandwidth – {name}")
-        self._ax.set_ylabel("% BW usage")
-        self._ax.set_ylim(0, 100)
+        self._ax.set_title(title)
+        if y_label:
+            self._ax.set_ylabel(y_label)
+        if ylim:
+            self._ax.set_ylim(*ylim)
         self._line = None
         self._canvas.draw_idle()
 
-    def update_history(self, history: Dict[str, List[Tuple[str, float]]]):
-        if not self._selected or self._selected not in history:
+    def _update_line(self, series: List[Tuple[str, float]], ylim: Tuple[int,int] | None = None):
+        if not series:
             return
-        data = history[self._selected][-60:]  # últimos 60 puntos
-        if not data:
-            return
-        x_labels = [ts.split("T")[1] for ts, _ in data]
-        y = [v for _, v in data]
-        x = np.arange(len(y))
+        x = np.arange(len(series))
+        y = [v for _, v in series]
+        labels = [ts.split("T")[1] for ts, _ in series]
         if self._line is None:
             (self._line,) = self._ax.plot(x, y, "-o")
         else:
             self._line.set_data(x, y)
-        self._ax.set_xticks(x[:: max(1, len(x) // 8)])
-        self._ax.set_xticklabels(x_labels[:: max(1, len(x_labels) // 8)], rotation=45, ha="right", fontsize=7)
+        step = max(1, len(x) // 8)
+        self._ax.set_xticks(x[::step])
+        self._ax.set_xticklabels(labels[::step], rotation=45, ha="right", fontsize=7)
         self._ax.set_xlim(0, len(x) - 1)
-        self._ax.set_ylim(0, 100)
+        if ylim:
+            self._ax.set_ylim(*ylim)
         self._canvas.draw_idle()
 
 
+class BandwidthPlot(_LinePlot):
+    def __init__(self, master: tk.Misc, bw_threshold: int):
+        super().__init__(master, "% BW usage")
+        self._threshold = bw_threshold
+
+    def set_interface(self, iface: str):
+        self._iface = iface
+        self._reset(f"Bandwidth — {iface}", "% BW usage", (0, 100))
+        self._ax.axhline(self._threshold, linestyle="--", color="red")
+
+    def update_history(self, hist: Dict[str, List[Tuple[str, float]]]):
+        if self._iface and self._iface in hist:
+            series = hist[self._iface][-60:]
+            self._update_line(series, (0, 100))
+
+
+class ErrorPlot(_LinePlot):
+    def __init__(self, master: tk.Misc, error_threshold: int):
+        super().__init__(master, "Total errors")
+        self._threshold = error_threshold
+
+    def set_interface(self, iface: str):
+        self._iface = iface
+        self._reset(f"Errors — {iface}")
+        self._ax.axhline(self._threshold, linestyle="--", color="red")
+
+    def update_history(self, hist: Dict[str, List[Tuple[str, int]]]):
+        if self._iface and self._iface in hist:
+            series = hist[self._iface][-60:]        # lista: [(ts, total_errors)]
+            if len(series) < 2:
+                return                              # aún no hay delta
+            # ── NUEVO: calcular Δerrores por intervalo ───────────────────
+            deltas = [
+                (series[i][0], series[i][1] - series[i-1][1])
+                for i in range(1, len(series))
+            ]
+            self._update_line(deltas, ylim=None)    # ahora graficamos delt
+
+
+class InterfacePage(ttk.Frame):
+    FIELDS = ("Status", "IPv4", "IPv6", "Speed (Mb/s)", "Description")
+
+    def __init__(self, master: tk.Misc, bw_thr: int, err_thr: int):
+        super().__init__(master, padding=10)
+        self._bw_thr, self._err_thr = bw_thr, err_thr
+        self._iface: str | None = None
+
+        # Table horizontal
+        table = ttk.Frame(self)
+        table.grid(row=0, column=0, sticky="ew")
+        for col, field in enumerate(self.FIELDS):
+            ttk.Label(table, text=field, font=("Helvetica", 10, "bold")).grid(row=0, column=col, padx=6, pady=(0,2))
+        self._vals: Dict[str, ttk.Label] = {}
+        for col, field in enumerate(self.FIELDS):
+            lbl = ttk.Label(table, text="—", width=20, anchor="center")
+            lbl.grid(row=1, column=col, padx=6, pady=(0,4))
+            self._vals[field] = lbl
+
+        # inner notebook with plots
+        self._plots_nb = ttk.Notebook(self)
+        self._plots_nb.grid(row=1, column=0, sticky="nsew", pady=(10,0))
+        self._bw_plot = BandwidthPlot(self._plots_nb, self._bw_thr)
+        self._plots_nb.add(self._bw_plot, text="Bandwidth %")
+        self._err_plot = ErrorPlot(self._plots_nb, self._err_thr)
+        self._plots_nb.add(self._err_plot, text="Errors")
+
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)
+
+    def set_interface(self, name: str, data: Dict[str, Any]):
+        self._iface = name
+        self._bw_plot.set_interface(name)
+        self._err_plot.set_interface(name)
+        self._vals["Status"].configure(text=data.get("status", "—"))
+        self._vals["IPv4"].configure(text=data.get("ip", "—"))
+        self._vals["IPv6"].configure(text=data.get("ipv6", "—"))
+        self._vals["Speed (Mb/s)"].configure(text=data.get("speed", "—"))
+        self._vals["Description"].configure(text=data.get("description", ""))
+
+    def refresh(self,
+                bw_hist: Dict[str, List[Tuple[str, float]]],
+                err_hist: Dict[str, List[Tuple[str, int]]]):
+        self._bw_plot.update_history(bw_hist)
+        self._err_plot.update_history(err_hist)
+
+
 class AlertsFrame(ttk.Frame):
-    """Lista de alertas con severidad."""
-
-    COLS = ("time", "severity", "interface", "message")
-
-    def __init__(self, master: tk.Misc):  # type: ignore[name-defined]
+    COLS = ("Time", "Severity", "Iface", "Message")
+    def __init__(self, master: tk.Misc):
         super().__init__(master, padding=10)
         self._tree = ttk.Treeview(self, columns=self.COLS, show="headings", height=6)
         self._tree.pack(fill="both", expand=True)
-
-        headers = {
-            "time": "Time",
-            "severity": "Severity",
-            "interface": "Iface",
-            "message": "Message",
-        }
-        for col in self.COLS:
-            self._tree.heading(col, text=headers[col])
-            self._tree.column(col, anchor="center")
-
-    def update(self, alerts: List[Dict[str, Any]]):
+        for c in self.COLS:
+            self._tree.heading(c, text=c)
+            self._tree.column(c, anchor="center")
+    def update(self, alerts: List[Dict[str,Any]]):
         self._tree.delete(*self._tree.get_children())
-        for alert in alerts[-100:]:
-            self._tree.insert(
-                "",
-                "end",
-                values=(
-                    alert["timestamp"].split("T")[1],
-                    alert["severity"],
-                    alert.get("interface", ""),
-                    alert["message"],
-                ),
-            )
+        for a in alerts[-100:]:
+            self._tree.insert("", "end", values=(a["timestamp"].split("T")[1], a["severity"], a.get("interface",""), a["message"]))
 
-
-# ───────────────────────────────────────────────────────────────────────────────
-# Aplicación principal
-# ───────────────────────────────────────────────────────────────────────────────
-
+###############################################################################
+#  Main App                                                                   #
+###############################################################################
 
 class App(tk.Tk):
-    """Capa de orquestación entre Monitor y Frames Tkinter."""
+    """Ventana principal que orquesta Monitor ↔ GUI."""
 
-    POLL_MS = 500
+    POLL_MS = 1_000  # chequeo de cola cada segundo
+    MAX_PAGES = 4
 
     def __init__(self, monitor: Any):
         super().__init__()
@@ -228,41 +215,45 @@ class App(tk.Tk):
         self.geometry("960x720")
         self.minsize(800, 600)
 
-        # ── dependencias
+        # --- Dependencias -------------------------------------------------
         self._monitor = monitor
-        self._q_snap: queue.Queue[dict] = queue.Queue()
-        if hasattr(self._monitor, "on_update"):
-            self._monitor.on_update = self._q_snap.put  # type: ignore
+        self._queue: queue.Queue[dict] = queue.Queue()
+        if hasattr(monitor, "on_update"):
+            monitor.on_update = self._queue.put  # type: ignore[arg-type]
+
+        # Umbrales leídos del monitor o valores de reserva
+        self._bw_thr = getattr(monitor, "bandwidth_threshold", 70)
+        self._err_thr = getattr(monitor, "error_threshold", 5)
 
         self._running = False
-        self._selected_iface: str | None = None
+        self._page_ifaces: List[str | None] = [None] * self.MAX_PAGES
 
-        # ── construir layout
-        self._build()
-        self.after(self.POLL_MS, self._drain_queue)
+        # --- Construcción de UI -----------------------------------------
+        self._build_ui()
+        self.after(self.POLL_MS, self._pump_queue)
 
-    # ────────────────────────────── layout ────────────────────────────────
-    def _build(self):
+    # ------------------------------------------------------------------
+    def _build_ui(self):
         # Barra superior
-        self._top = TopBar(self, start_cb=self._start, stop_cb=self._stop)
+        self._top = TopBar(self, start_cb=self._start_monitor, stop_cb=self._stop_monitor)
         self._top.pack(fill="x")
 
-        # Notebook central
-        nb = ttk.Notebook(self)
-        nb.pack(fill="both", expand=True)
+        # Notebook principal con páginas por interfaz
+        self._nb = ttk.Notebook(self)
+        self._nb.pack(fill="both", expand=True)
+        self._pages: List[InterfacePage] = []
+        for idx in range(self.MAX_PAGES):
+            page = InterfacePage(self._nb, self._bw_thr, self._err_thr)
+            self._nb.add(page, text=f"Iface {idx+1}")
+            self._pages.append(page)
 
-        self._f_int = InterfacesFrame(nb, on_select=self._select_iface)
-        nb.add(self._f_int, text="Interfaces")
+        # Lista de alertas inferior
+        self._alerts = AlertsFrame(self)
+        self._alerts.pack(fill="both")
 
-        self._f_bw = BandwidthFrame(nb)
-        nb.add(self._f_bw, text="Bandwidth")
-
-        # Panel de alertas
-        self._f_alerts = AlertsFrame(self)
-        self._f_alerts.pack(fill="both")
-
-    # ───────────────────── control del monitor ────────────────────────────
-    def _start(self):
+    # ------------------------------------------------------------------
+    # Control del monitor (botones Start/Stop)
+    def _start_monitor(self):
         if self._running:
             return
         if hasattr(self._monitor, "start_monitoring"):
@@ -270,7 +261,7 @@ class App(tk.Tk):
         self._running = True
         self._top.set_running(True)
 
-    def _stop(self):
+    def _stop_monitor(self):
         if not self._running:
             return
         if hasattr(self._monitor, "stop_monitoring"):
@@ -278,43 +269,42 @@ class App(tk.Tk):
         self._running = False
         self._top.set_running(False)
 
-    # ────────────────────────── cola / snapshots ──────────────────────────
-    def _drain_queue(self):
+    # ------------------------------------------------------------------
+    # Cola de snapshots
+    def _pump_queue(self):
         try:
             while True:
-                snap = self._q_snap.get_nowait()
-                self._process_snap(snap)
+                snap = self._queue.get_nowait()
+                self._handle_snapshot(snap)
         except queue.Empty:
             pass
-        self.after(self.POLL_MS, self._drain_queue)
+        self.after(self.POLL_MS, self._pump_queue)
 
-    def _process_snap(self, snap: dict):
+    def _handle_snapshot(self, snap: dict):
+        # Timestamp en TopBar
         ts = snap.get("timestamp") or datetime.utcnow().isoformat(timespec="seconds")
         self._top.set_timestamp(ts.split("T")[1])
 
-        # Tabla de interfaces
-        self._f_int.update(snap.get("interfaces", {}))
+        interfaces: Dict[str, Dict[str, Any]] = snap.get("interfaces", {})
+        bw_hist: Dict[str, List[Tuple[str, float]]] = snap.get("bandwidth_history", {})
+        err_hist: Dict[str, List[Tuple[str, int]]] = snap.get("error_history", {})
 
-        # Selección inicial de interfaz si no hay una
-        if self._selected_iface is None and snap.get("interfaces"):
-            self._selected_iface = next(iter(snap["interfaces"].keys()))
-            self._f_bw.select_interface(self._selected_iface)
-
-        # Update gráfico BW
-        self._f_bw.update_history(snap.get("bandwidth_history", {}))
+        # Asignar primeras N interfaces a páginas y refrescar datos
+        first_ifaces = list(interfaces.keys())[: self.MAX_PAGES]
+        for idx, iface in enumerate(first_ifaces):
+            if self._page_ifaces[idx] != iface:
+                self._page_ifaces[idx] = iface
+                self._nb.tab(idx, text=iface)
+            self._pages[idx].set_interface(iface, interfaces[iface])
+            self._pages[idx].refresh(bw_hist, err_hist)
 
         # Alertas
-        self._f_alerts.update(snap.get("alerts", []))
+        self._alerts.update(snap.get("alerts", []))
 
-    # ─────────────────────────── callbacks UI ─────────────────────────────
-    def _select_iface(self, name: str):
-        self._selected_iface = name
-        self._f_bw.select_interface(name)
-
-    # ───────────────────────────── limpiar ────────────────────────────────
+    # ------------------------------------------------------------------
     def destroy(self):  # noqa: D401 override
         try:
-            if hasattr(self._monitor, "stop_monitoring"):
+            if hasattr(self._monitor, "stop_monitoring") and self._running:
                 self._monitor.stop_monitoring()
         finally:
             super().destroy()
