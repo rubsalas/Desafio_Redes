@@ -127,4 +127,3 @@ def main():
 * `HISTORY_LIMIT`: Límite del historial de puntos
 * `bandwidth_threshold`: Umbral de alerta por uso
 * `error_threshold`: Umbral de alerta por errores
-

@@ -116,7 +116,7 @@ class NetworkMonitor:
     def _monitoring_loop(self):
         while self.running:
             start_time = time.time()
-            #self.update_network_data()
+            self.update_network_data()
             self.fetch_devices()
             elapsed = time.time() - start_time
             time.sleep(max(0, self.polling_interval - elapsed))
