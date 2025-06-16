@@ -5,7 +5,7 @@ from datetime import datetime
 import fastapi
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 import uvicorn
 import pyang
 from pyang.repository import FileRepository
@@ -147,6 +147,35 @@ class UpdateResponse(BaseModel):
             "yang-module": "network-monitor",
             "yang-rpc": "force-update"
         }
+        
+class DeviceModel(BaseModel):
+    id: Optional[str] = None
+    hostname: str
+    managementIpAddress: str
+    macAddress: str
+    softwareVersion: str
+    reachabilityStatus: str
+    upTime: str
+    serialNumber: str
+    platformId: str
+    interfaceCount: int
+    lastUpdated: str
+    description: Optional[str] = None
+    role: Optional[str] = None
+
+    class Config:
+        json_schema_extra = {
+            "yang-type": "list",
+            "yang-module": "network-monitor",
+            "yang-path": "/devices/device"
+        }
+
+    @validator('interfaceCount', pre=True)
+    def parse_interface_count(cls, v):
+        try:
+            return int(v)
+        except (ValueError, TypeError):
+            return 0
 
 # Funciones de validación YANG
 def validate_with_yang(data, model_name, path=None):
@@ -315,6 +344,60 @@ def get_root():
             }
         }
     )
+
+@app.get("/restconf/data/network-monitor:devices", 
+         response_model=List[DeviceModel],
+         tags=["network-monitor"])
+def get_devices():
+    """Obtener lista de todos los dispositivos"""
+    try:
+        if not monitor.devices:
+            if not monitor.fetch_devices():
+                raise fastapi.HTTPException(
+                    status_code=fastapi.status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="No se pudieron obtener los dispositivos"
+                )
+        
+        return [
+            DeviceModel(
+                id=device.id,
+                hostname=device.hostname,
+                managementIpAddress=device.managementIpAddress,
+                macAddress=device.macAddress,
+                softwareVersion=device.softwareVersion,
+                reachabilityStatus=device.reachabilityStatus,
+                upTime=device.upTime,
+                serialNumber=device.serialNumber,
+                platformId=device.platformId,
+                interfaceCount=device.interfaceCount,
+                lastUpdated=device.lastUpdated,
+                description=device.description,
+                role=device.role
+            ) for device in monitor.devices
+        ]
+    except Exception as e:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al procesar dispositivos: {str(e)}"
+        )
+
+@app.get("/restconf/data/network-monitor:devices/device={device_id}", 
+         response_model=DeviceModel,
+         tags=["network-monitor"])
+def get_device(device_id: str):
+    """Obtener información de un dispositivo específico"""
+    for device in monitor.devices:
+        if device.id == device_id:
+            return device
+    raise fastapi.HTTPException(status_code=404, detail="Dispositivo no encontrado")
+
+@app.get("/restconf/data/network-monitor:device-history/device={device_id}", 
+         tags=["network-monitor"])
+def get_device_history(device_id: str):
+    """Obtener historial de un dispositivo"""
+    if device_id not in monitor.device_history:
+        raise fastapi.HTTPException(status_code=404, detail="Historial no encontrado")
+    return monitor.device_history[device_id]
 
 if __name__ == "__main__":
     if not os.path.exists(YANG_MODELS_DIR):

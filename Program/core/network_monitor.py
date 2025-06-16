@@ -12,11 +12,13 @@ import threading
 requests.packages.urllib3.disable_warnings()
 
 # Configuración RESTCONF
-BASE_URL = "https://sandbox-iosxe-latest-1.cisco.com/restconf/data"
+BASE_URL = "https://10.10.20.85/dna/intent/api/v1/network-device"
 HEADERS = {
-    "Accept": "application/yang-data+json",
-    "Content-Type": "application/yang-data+json",
-    "Authorization": "Basic ZGV2ZWxvcGVyOkMxc2NvMTIzNDU="
+    #"Accept": "application/yang-data+json",
+    #"Content-Type": "application/yang-data+json",
+    #"Authorization": "Basic ZGV2ZWxvcGVyOkMxc2NvMTIzNDU="
+    "X-Auth-Token":"eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY3RpdmVSRCI6IjFlMGFmNWQyZWM0ZDQ2ZTIyZDBhYmRlM2E1Y2RkYWNlN2RlZDNlOWQiLCJhdWQiOiJDRE5BIiwiYXV0aFNvdXJjZSI6ImxlZ2FjeSIsImNsaWVudElkIjoiYWRtaW5pc3RyYXRvciIsImVtYWlsIjoiYWRtaW5pc3RyYXRvckBsb2NhbHVzZXIuY29tIiwiZXhwIjoxNzUwMTA1NjYyLCJpYXQiOjE3NTAxMDIwNjIsImlzcyI6ImRuYWMiLCJyZHMiOlsiMWUwYWY1ZDJlYzRkNDZlMjJkMGFiZGUzYTVjZGRhY2U3ZGVkM2U5ZCJdLCJyZXNvdXJjZUdyb3VwcyI6Ikg0c0lBQUFBQUFBQS80cXVWaW91U2c1S0xjNHZMVXBPOVV4UnNsTFNVdEpSS3Frc1NGV3lVaXJPTEVsVnFvMEZCQUFBLy8rY3ZYZktKUUFBQUE9PSIsInJvbGVzIjpbIlNVUEVSLUFETUlOIl0sInNlc3Npb25JZCI6ImI1NTM2N2Q2LTJlOGMtNTAyNS1iMmQ4LTQ5NGIzNTM3NzhkNCIsInN1YiI6IjY4MGFiZTNkYmI1YTZiMDA1NmYxOTNkZiIsInRlbmFudElkIjoiNjdiOTM1YzU5MTU1ZjUwMDEzNTE1ZDFjIiwidGVuYW50TmFtZSI6IlROVDAiLCJ1c2VybmFtZSI6ImFkbWluaXN0cmF0b3IifQ.NE1wQ2D4djG3J3ZItAlW_B7mFUoeS6rEn7QloowbFlhnKceGjDfc-OidJt2FL0bwg96oCA0vjFzLrp7TZBgNQA",
+    "Content-Type":"application/json"
 }
 
 POLLING_INTERVAL = 60  # segundos
@@ -54,6 +56,38 @@ class Alert:
     timestamp: str
     interface: Optional[str] = None
 
+@dataclass
+class DeviceInfo:
+    hostname: str
+    managementIpAddress: str
+    macAddress: str
+    softwareVersion: str
+    reachabilityStatus: str
+    upTime: str
+    serialNumber: str
+    platformId: str
+    interfaceCount: str  # Cambiado a str para coincidir con el JSON
+    lastUpdated: str
+    id: str = None  # Hacer opcional y asignar después
+    description: str = ""
+    role: str = ""
+    vendor: str = "Cisco"
+    type: str = ""
+    family: str = ""
+    series: str = ""
+
+    def __post_init__(self):
+        # Convertir interfaceCount a entero si es posible
+        try:
+            self.interfaceCount = int(self.interfaceCount)
+        except (ValueError, TypeError):
+            self.interfaceCount = 0
+
+@dataclass
+class DeviceResponse:
+    response: List[DeviceInfo]
+    version: str
+
 class NetworkMonitor:
     def __init__(self):
         self.interfaces: List[Interface] = []
@@ -65,6 +99,8 @@ class NetworkMonitor:
         self.history_limit = HISTORY_LIMIT
         self.bandwidth_threshold = 70
         self.error_threshold = 5
+        self.devices: List[DeviceInfo] = []
+        self.device_history = defaultdict(list)
 
     def start_monitoring(self):
         self.running = True
@@ -80,7 +116,8 @@ class NetworkMonitor:
     def _monitoring_loop(self):
         while self.running:
             start_time = time.time()
-            self.update_network_data()
+            #self.update_network_data()
+            self.fetch_devices()
             elapsed = time.time() - start_time
             time.sleep(max(0, self.polling_interval - elapsed))
 
@@ -265,6 +302,63 @@ class NetworkMonitor:
         with open("alerts_report.json", "w") as f:
             json.dump(alerts_data, f, indent=2)
         print("Reporte de alertas generado: alerts_report.json")
+
+    def fetch_devices(self) -> bool:
+        try:
+            url = f"{BASE_URL}/"
+            response = requests.get(url, headers=HEADERS, verify=False)
+            if response.status_code == 200:
+                data = response.json()
+                self._parse_devices(data)
+                return True
+            print("Error:" + str(response.status_code))
+            return False
+        except Exception as e:
+            print(f"Error fetching devices: {str(e)}")
+            return False
+
+    def _parse_devices(self, data: Dict):
+        try:
+            self.devices = []
+            for device_data in data.get("response", []):
+                # Asignar el ID basado en instanceUuid si existe
+                device_id = device_data.get("instanceUuid") or device_data.get("id")
+                device_info = DeviceInfo(
+                    id=device_id,
+                    hostname=device_data.get("hostname", ""),
+                    managementIpAddress=device_data.get("managementIpAddress", ""),
+                    macAddress=device_data.get("macAddress", ""),
+                    softwareVersion=device_data.get("softwareVersion", ""),
+                    reachabilityStatus=device_data.get("reachabilityStatus", ""),
+                    upTime=device_data.get("upTime", ""),
+                    serialNumber=device_data.get("serialNumber", ""),
+                    platformId=device_data.get("platformId", ""),
+                    interfaceCount=str(device_data.get("interfaceCount", "0")),
+                    lastUpdated=device_data.get("lastUpdated", ""),
+                    description=device_data.get("description", ""),
+                    role=device_data.get("role", ""),
+                    vendor=device_data.get("vendor", "Cisco"),
+                    type=device_data.get("type", ""),
+                    family=device_data.get("family", ""),
+                    series=device_data.get("series", "")
+                )
+                self.devices.append(device_info)
+            
+            self._update_device_history()
+        except Exception as e:
+            print(f"Error parsing devices: {str(e)}")
+            raise
+
+    def _update_device_history(self):
+        timestamp = datetime.now().isoformat()
+        for device in self.devices:
+            print("Dispotivo: " + device.id + ". Estado: " + device.reachabilityStatus)
+            self.device_history[device.id].append({
+                "timestamp": timestamp,
+                "reachability": device.reachabilityStatus,
+                "uptime": device.upTime,
+                "interface_count": device.interfaceCount
+            })
 
 def main():
     print("Iniciando Monitor de Red con RESTCONF")
