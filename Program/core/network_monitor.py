@@ -25,36 +25,12 @@ POLLING_INTERVAL = 60  # segundos
 HISTORY_LIMIT = 1440
 
 @dataclass
-class InterfaceIP:
-    ip: str
-    netmask: str
-
-@dataclass
-class InterfaceStats:
-    in_octets: int
-    out_octets: int
-    in_errors: int
-    out_errors: int
-    last_updated: str
-
-@dataclass
-class Interface:
-    name: str
-    description: str
-    enabled: bool
-    oper_status: str
-    ipv4: Optional[InterfaceIP] = None
-    ipv6: Optional[InterfaceIP] = None
-    speed: Optional[int] = None
-    stats: Optional[InterfaceStats] = None
-
-@dataclass
 class Alert:
     type: str
     message: str
     severity: str
     timestamp: str
-    interface: Optional[str] = None
+    device_id: Optional[str] = None
 
 @dataclass
 class DeviceInfo:
@@ -66,15 +42,19 @@ class DeviceInfo:
     upTime: str
     serialNumber: str
     platformId: str
-    interfaceCount: str  # Cambiado a str para coincidir con el JSON
+    interfaceCount: str
     lastUpdated: str
-    id: str = None  # Hacer opcional y asignar después
+    id: str
     description: str = ""
     role: str = ""
     vendor: str = "Cisco"
     type: str = ""
     family: str = ""
     series: str = ""
+    softwareType: str = ""
+    deviceSupportLevel: str = ""
+    collectionStatus: str = ""
+    bootDateTime: str = ""
 
     def __post_init__(self):
         # Convertir interfaceCount a entero si es posible
@@ -90,15 +70,10 @@ class DeviceResponse:
 
 class NetworkMonitor:
     def __init__(self):
-        self.interfaces: List[Interface] = []
         self.alerts: List[Alert] = []
-        self.bandwidth_history = defaultdict(list)
-        self.error_history = defaultdict(list)
         self.running = False
         self.polling_interval = POLLING_INTERVAL
         self.history_limit = HISTORY_LIMIT
-        self.bandwidth_threshold = 70
-        self.error_threshold = 5
         self.devices: List[DeviceInfo] = []
         self.device_history = defaultdict(list)
 
@@ -116,215 +91,172 @@ class NetworkMonitor:
     def _monitoring_loop(self):
         while self.running:
             start_time = time.time()
-            self.update_network_data()
             self.fetch_devices()
+            self.check_for_alerts()
+            self.update_history()
+            if len(self.device_history.get(list(self.device_history.keys())[0], [])) % 5 == 0:
+                self.generate_reports()
             elapsed = time.time() - start_time
             time.sleep(max(0, self.polling_interval - elapsed))
 
-    def update_network_data(self):
-        print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Actualizando datos...")
-        if self.fetch_interfaces():
-            for interface in self.interfaces:
-                self.fetch_interface_stats(interface.name)
-            self.check_for_alerts()
-            self.update_history()
-            if len(self.bandwidth_history.get(list(self.bandwidth_history.keys())[0], [])) % 5 == 0:
-                self.generate_reports()
-        else:
-            print("Error al actualizar datos de red")
-
-    def fetch_interfaces(self) -> bool:
-        try:
-            url = f"{BASE_URL}/ietf-interfaces:interfaces"
-            response = requests.get(url, headers=HEADERS, verify=False)
-            if response.status_code == 200:
-                data = response.json()
-                self._parse_interfaces(data)
-                return True
-            else:
-                print(f"Error al obtener interfaces: {response.status_code}")
-                return False
-        except Exception as e:
-            print(f"Error en fetch_interfaces: {str(e)}")
-            return False
-
-    def _parse_interfaces(self, data: Dict):
-        new_interfaces = []
-        for iface_data in data.get("ietf-interfaces:interfaces", {}).get("interface", []):
-            ipv4 = None
-            ipv6 = None
-            ipv4_data = iface_data.get("ietf-ip:ipv4", {}).get("address", [{}])[0]
-            if ipv4_data.get("ip"):
-                ipv4 = InterfaceIP(ip=ipv4_data.get("ip"), netmask=ipv4_data.get("netmask", ""))
-            ipv6_data = iface_data.get("ietf-ip:ipv6", {}).get("address", [{}])[0]
-            if ipv6_data.get("ip"):
-                ipv6 = InterfaceIP(ip=ipv6_data.get("ip"), netmask=ipv6_data.get("prefix-length", ""))
-            interface = Interface(
-                name=iface_data.get("name", ""),
-                description=iface_data.get("description", ""),
-                enabled=iface_data.get("enabled", False),
-                oper_status=iface_data.get("oper-status", "unknown"),
-                ipv4=ipv4,
-                ipv6=ipv6,
-                speed=iface_data.get("speed", None)
-            )
-            new_interfaces.append(interface)
-        self.interfaces = new_interfaces
-
-    def fetch_interface_stats(self, interface_name: str) -> bool:
-        try:
-            url = f"{BASE_URL}/ietf-interfaces:interfaces-state/interface={interface_name}"
-            response = requests.get(url, headers=HEADERS, verify=False)
-            if response.status_code == 200:
-                data = response.json()
-                self._parse_interface_stats(interface_name, data)
-                return True
-            else:
-                print(f"Error al obtener stats para {interface_name}: {response.status_code}")
-                return False
-        except Exception as e:
-            print(f"Error en fetch_interface_stats: {str(e)}")
-            return False
-
-    def _parse_interface_stats(self, interface_name: str, data: Dict):
-        stats_data = data.get("ietf-interfaces:interface", {})
-        if "statistics" in stats_data:
-            stats = InterfaceStats(
-                in_octets=int(stats_data["statistics"].get("in-octets", 0)),
-                out_octets=int(stats_data["statistics"].get("out-octets", 0)),
-                in_errors=int(stats_data["statistics"].get("in-errors", 0)),
-                out_errors=int(stats_data["statistics"].get("out-errors", 0)),
-                last_updated=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            )
-            for interface in self.interfaces:
-                if interface.name == interface_name:
-                    interface.stats = stats
-                    break
-
     def check_for_alerts(self):
         new_alerts = []
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        for interface in self.interfaces:
-            if not interface.enabled or interface.oper_status.lower() != "up":
+        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        for device in self.devices:
+            # Verificar estado de alcanzabilidad
+            if device.reachabilityStatus.lower() != "reachable":
                 new_alerts.append(Alert(
-                    type="INTERFACE_DOWN",
-                    message=f"La interfaz {interface.name} está {'deshabilitada' if not interface.enabled else 'operacionalmente caída'}",
+                    type="DEVICE_UNREACHABLE",
+                    message=f"El dispositivo {device.hostname} ({device.managementIpAddress}) no es alcanzable",
                     severity="critical",
                     timestamp=current_time,
-                    interface=interface.name
+                    device_id=device.id
                 ))
-            if not interface.ipv4 and not interface.ipv6:
+            
+            # Verificar si el dispositivo está soportado
+            if device.deviceSupportLevel.lower() != "supported":
                 new_alerts.append(Alert(
-                    type="NO_IP_ASSIGNED",
-                    message=f"La interfaz {interface.name} no tiene dirección IP asignada",
+                    type="UNSUPPORTED_DEVICE",
+                    message=f"El dispositivo {device.hostname} no está soportado (Estado: {device.deviceSupportLevel})",
                     severity="warning",
                     timestamp=current_time,
-                    interface=interface.name
+                    device_id=device.id
                 ))
-            if interface.stats and (interface.stats.in_errors > self.error_threshold or interface.stats.out_errors > self.error_threshold):
+            
+            # Verificar estado de colección
+            if device.collectionStatus.lower() != "managed":
                 new_alerts.append(Alert(
-                    type="HIGH_ERROR_RATE",
-                    message=f"La interfaz {interface.name} tiene {interface.stats.in_errors} errores de entrada y {interface.stats.out_errors} de salida",
+                    type="COLLECTION_ISSUE",
+                    message=f"Problema con la colección de datos del dispositivo {device.hostname} (Estado: {device.collectionStatus})",
                     severity="warning",
                     timestamp=current_time,
-                    interface=interface.name
+                    device_id=device.id
                 ))
+            
+            # Verificar tiempo de actividad (uptime) muy bajo (posible reinicio reciente)
+            if ":" in device.upTime:
+                try:
+                    hours, minutes, seconds = map(float, device.upTime.split(":"))
+                    total_seconds = hours * 3600 + minutes * 60 + seconds
+                    if total_seconds < 300:  # Menos de 5 minutos de uptime
+                        new_alerts.append(Alert(
+                            type="RECENT_REBOOT",
+                            message=f"El dispositivo {device.hostname} se reinició recientemente (Uptime: {device.upTime})",
+                            severity="warning",
+                            timestamp=current_time,
+                            device_id=device.id
+                        ))
+                except ValueError:
+                    pass
+        
         self.alerts = new_alerts
 
     def update_history(self):
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        for interface in self.interfaces:
-            if interface.stats:
-                max_bandwidth = interface.speed * 1e6 if interface.speed else 1e9
-                bandwidth_usage = ((interface.stats.in_octets + interface.stats.out_octets) * 8 / max_bandwidth) * 100
-                self.bandwidth_history[interface.name].append((current_time, bandwidth_usage))
-                self.error_history[interface.name].append((current_time, interface.stats.in_errors + interface.stats.out_errors))
-                if len(self.bandwidth_history[interface.name]) > self.history_limit:
-                    self.bandwidth_history[interface.name].pop(0)
-                    self.error_history[interface.name].pop(0)
+        timestamp = datetime.now().isoformat()
+        for device in self.devices:
+            self.device_history[device.id].append({
+                "timestamp": timestamp,
+                "reachability": device.reachabilityStatus,
+                "uptime": device.upTime,
+                "interface_count": device.interfaceCount,
+                "software_version": device.softwareVersion
+            })
+            
+            # Limitar el historial según HISTORY_LIMIT
+            if len(self.device_history[device.id]) > self.history_limit:
+                self.device_history[device.id].pop(0)
 
     def generate_reports(self):
         print("Generando reportes...")
-        self.generate_interfaces_table()
-        self.generate_bandwidth_report()
+        self.generate_devices_table()
+        self.generate_reachability_report()
         self.generate_alerts_report()
 
-    def generate_interfaces_table(self) -> List[Dict]:
-        interfaces_table = []
-        for iface in self.interfaces:
-            ip_info = ""
-            if iface.ipv4:
-                ip_info = f"IPv4: {iface.ipv4.ip}/{iface.ipv4.netmask}"
-            if iface.ipv6:
-                ip_info += f", IPv6: {iface.ipv6.ip}/{iface.ipv6.netmask}" if ip_info else f"IPv6: {iface.ipv6.ip}/{iface.ipv6.netmask}"
-            interfaces_table.append({
-                "name": iface.name,
-                "description": iface.description,
-                "status": "UP" if iface.enabled and iface.oper_status.lower() == "up" else "DOWN",
-                "enabled": "Sí" if iface.enabled else "No",
-                "ip_info": ip_info if ip_info else "N/A",
-                "speed": f"{iface.speed} Mbps" if iface.speed else "Desconocido"
+    def generate_devices_table(self) -> List[Dict]:
+        devices_table = []
+        for device in self.devices:
+            devices_table.append({
+                "hostname": device.hostname,
+                "management_ip": device.managementIpAddress,
+                "platform": device.platformId,
+                "software_version": device.softwareVersion,
+                "reachability": device.reachabilityStatus,
+                "uptime": device.upTime,
+                "interfaces": device.interfaceCount,
+                "serial_number": device.serialNumber,
+                "last_updated": device.lastUpdated,
+                "device_id": device.id
             })
-        with open("interfaces_table.json", "w") as f:
-            json.dump(interfaces_table, f, indent=2)
-        return interfaces_table
+        
+        with open("devices_table.json", "w") as f:
+            json.dump(devices_table, f, indent=2)
+        return devices_table
 
-    def generate_bandwidth_report(self):
-        if not self.bandwidth_history:
-            print("No hay datos históricos de ancho de banda")
+    def generate_reachability_report(self):
+        if not self.device_history:
+            print("No hay datos históricos de alcanzabilidad")
             return
+        
         plt.figure(figsize=(12, 6))
-        for interface, data in self.bandwidth_history.items():
-            timestamps = [d[0] for d in data]
-            values = [d[1] for d in data]
-            plt.plot(timestamps, values, label=interface)
-        plt.title("Uso de Ancho de Banda por Interfaz (Histórico)")
-        plt.ylabel("Porcentaje de Uso")
+        
+        # Preparar datos para el gráfico
+        device_status = {}
+        for device_id, history in self.device_history.items():
+            device = next((d for d in self.devices if d.id == device_id), None)
+            if device:
+                timestamps = [entry["timestamp"] for entry in history]
+                reachability = [1 if entry["reachability"].lower() == "reachable" else 0 for entry in history]
+                device_status[device.hostname] = (timestamps, reachability)
+        
+        # Crear gráfico para cada dispositivo
+        for hostname, (timestamps, reachability) in device_status.items():
+            plt.plot(timestamps, reachability, label=hostname)
+        
+        plt.title("Estado de Alcanzabilidad de Dispositivos (Histórico)")
+        plt.ylabel("Alcanzable (1) / No Alcanzable (0)")
         plt.xlabel("Tiempo")
         plt.xticks(rotation=45)
-        plt.axhline(y=self.bandwidth_threshold, color='r', linestyle='--', label='Umbral de Alerta')
         plt.legend()
         plt.tight_layout()
-        plt.savefig("bandwidth_history.png")
+        plt.savefig("reachability_history.png")
         plt.close()
-        print("Reporte de ancho de banda generado: bandwidth_history.png")
+        print("Reporte de alcanzabilidad generado: reachability_history.png")
 
     def generate_alerts_report(self):
         if not self.alerts:
             print("No hay alertas para reportar")
             return
+        
         alerts_data = [{
             "timestamp": alert.timestamp,
             "severity": alert.severity,
             "message": alert.message,
-            "interface": alert.interface or "N/A"
+            "device_id": alert.device_id or "N/A"
         } for alert in self.alerts]
+        
         with open("alerts_report.json", "w") as f:
             json.dump(alerts_data, f, indent=2)
         print("Reporte de alertas generado: alerts_report.json")
 
     def fetch_devices(self) -> bool:
         try:
-            url = f"{BASE_URL}/"
-            response = requests.get(url, headers=HEADERS, verify=False)
+            response = requests.get(BASE_URL, headers=HEADERS, verify=False)
             if response.status_code == 200:
                 data = response.json()
                 self._parse_devices(data)
                 return True
-            print("Error:" + str(response.status_code))
+            print(f"Error al obtener dispositivos: {response.status_code}")
             return False
         except Exception as e:
-            print(f"Error fetching devices: {str(e)}")
+            print(f"Error en fetch_devices: {str(e)}")
             return False
 
     def _parse_devices(self, data: Dict):
         try:
             self.devices = []
             for device_data in data.get("response", []):
-                # Asignar el ID basado en instanceUuid si existe
-                device_id = device_data.get("instanceUuid") or device_data.get("id")
                 device_info = DeviceInfo(
-                    id=device_id,
                     hostname=device_data.get("hostname", ""),
                     managementIpAddress=device_data.get("managementIpAddress", ""),
                     macAddress=device_data.get("macAddress", ""),
@@ -335,33 +267,25 @@ class NetworkMonitor:
                     platformId=device_data.get("platformId", ""),
                     interfaceCount=str(device_data.get("interfaceCount", "0")),
                     lastUpdated=device_data.get("lastUpdated", ""),
+                    id=device_data.get("id", ""),
                     description=device_data.get("description", ""),
                     role=device_data.get("role", ""),
                     vendor=device_data.get("vendor", "Cisco"),
                     type=device_data.get("type", ""),
                     family=device_data.get("family", ""),
-                    series=device_data.get("series", "")
+                    series=device_data.get("series", ""),
+                    softwareType=device_data.get("softwareType", ""),
+                    deviceSupportLevel=device_data.get("deviceSupportLevel", ""),
+                    collectionStatus=device_data.get("collectionStatus", ""),
+                    bootDateTime=device_data.get("bootDateTime", "")
                 )
                 self.devices.append(device_info)
-            
-            self._update_device_history()
         except Exception as e:
             print(f"Error parsing devices: {str(e)}")
             raise
 
-    def _update_device_history(self):
-        timestamp = datetime.now().isoformat()
-        for device in self.devices:
-            print("Dispotivo: " + device.id + ". Estado: " + device.reachabilityStatus)
-            self.device_history[device.id].append({
-                "timestamp": timestamp,
-                "reachability": device.reachabilityStatus,
-                "uptime": device.upTime,
-                "interface_count": device.interfaceCount
-            })
-
 def main():
-    print("Iniciando Monitor de Red con RESTCONF")
+    print("Iniciando Monitor de Dispositivos de Red")
     monitor = NetworkMonitor()
     try:
         monitor.start_monitoring()
