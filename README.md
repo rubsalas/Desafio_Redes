@@ -4,12 +4,12 @@ Este es el Trabajo Final del curso CE-5301 Redes de Computadores del Programa de
 
 ## Características Principales
 
-* Monitoreo continuo de interfaces de red
-* Detección de fallas y anomalías mediante alertas inteligentes
-* Recolección de estadísticas de red mediante RESTCONF
-* Generación periódica de reportes (JSON y visuales)
-* Basado en estándares abiertos: RESTCONF, YANG
-* Adaptado a formato de referencia CatalystData.json
+- Monitoreo continuo de interfaces de red
+- Detección de fallas y anomalías mediante alertas inteligentes
+- Recolección de estadísticas de red mediante RESTCONF
+- Generación periódica de reportes (JSON y visuales)
+- Basado en estándares abiertos: RESTCONF, YANG
+- Adaptado a formato de referencia CatalystData.json
 
 ## Configuración Básica
 
@@ -69,7 +69,7 @@ def stop_monitoring(self):
 def _monitoring_loop(self):
 ```
 
-* Ejecuta la actualización periódica en un hilo separado
+- Ejecuta la actualización periódica en un hilo separado
 
 ### 2. Recolección de Datos
 
@@ -78,8 +78,8 @@ def fetch_interfaces(self):
 def fetch_interface_stats(self, interface_name: str):
 ```
 
-* Llama a los endpoints RESTCONF para `ietf-interfaces` y `interfaces-state`
-* Estructura los datos en objetos definidos por YANG
+- Llama a los endpoints RESTCONF para `ietf-interfaces` y `interfaces-state`
+- Estructura los datos en objetos definidos por YANG
 
 ### 3. Detección de Alertas
 
@@ -87,7 +87,7 @@ def fetch_interface_stats(self, interface_name: str):
 def check_for_alerts(self):
 ```
 
-* Detecta interfaces caídas, sin IP o con errores excesivos
+- Detecta interfaces caídas, sin IP o con errores excesivos
 
 ### 4. Histórico y Reportes
 
@@ -99,8 +99,8 @@ def generate_bandwidth_report(self):
 def generate_alerts_report(self):
 ```
 
-* Mantiene un historial acotado por `HISTORY_LIMIT`
-* Genera reportes JSON y un gráfico de ancho de banda
+- Mantiene un historial acotado por `HISTORY_LIMIT`
+- Genera reportes JSON y un gráfico de ancho de banda
 
 ### 5. Ejecución Principal
 
@@ -117,23 +117,21 @@ def main():
 
 ## Archivos Generados
 
-* `interfaces_table.json`: Tabla con estado y atributos de interfaces
-* `bandwidth_history.png`: Gráfico del uso de ancho de banda
-* `alerts_report.json`: Reporte de alertas activas
+- `interfaces_table.json`: Tabla con estado y atributos de interfaces
+- `bandwidth_history.png`: Gráfico del uso de ancho de banda
+- `alerts_report.json`: Reporte de alertas activas
 
 ## Variables de Configuración
 
-* `POLLING_INTERVAL`: Intervalo entre recolecciones (segundos)
-* `HISTORY_LIMIT`: Límite del historial de puntos
-* `bandwidth_threshold`: Umbral de alerta por uso
-* `error_threshold`: Umbral de alerta por errores
-
-
+- `POLLING_INTERVAL`: Intervalo entre recolecciones (segundos)
+- `HISTORY_LIMIT`: Límite del historial de puntos
+- `bandwidth_threshold`: Umbral de alerta por uso
+- `error_threshold`: Umbral de alerta por errores
 
 ## Monitor Application
 
 A minimal, **cleanly‑layered** desktop application built with Tkinter and Matplotlib.
-The code base is split into *UI* and *business‑logic* modules so the project can scale without turning it into a monolith.
+The code base is split into _UI_ and _business‑logic_ modules so the project can scale without turning it into a monolith.
 
 ```
 Program/
@@ -149,15 +147,13 @@ Program/
     └─ app.py           # App(tk.Tk): window, frames, plots, callbacks
 ```
 
-
 ### Quick start
 
 #### 1 – Prerequisites
 
-* Python ≥ 3.9 (Linux, macOS or Windows)
-* Tk headers (usually pre‑installed with Python)
-* `pip install matplotlib numpy`
-
+- Python ≥ 3.9 (Linux, macOS or Windows)
+- Tk headers (usually pre‑installed with Python)
+- `pip install matplotlib numpy`
 
 #### 2 – Run the program
 
@@ -169,4 +165,3 @@ pip install matplotlib numpy
 
 python main.py                # launches the GUI
 ```
-

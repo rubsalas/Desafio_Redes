@@ -1,11 +1,10 @@
 # Network Monitor RESTCONF API Endpoints
 
-pip install fastapi
+1. Descargar e Instalar Cisco AnyConnect (VPN Client)
 
-pip install uvicorn
+https://kb.itd.commonwealthu.edu/books/network/page/download-cisco-secure-client
 
-pip install pyang
-
+pip install fastapi uvicorn pyang
 
 ## Base URL: <http://localhost:8000/restconf/data>
 
@@ -15,25 +14,25 @@ pip install pyang
 
 `GET /network-monitor:devices`
 Headers:
-  `Accept: application/yang-data+json`
+`Accept: application/yang-data+json`
 
 Example Response:
 
 ```json
 [
-    {
-        "id": "bfea531c-f8ff-476f-91c7-def7953b7706",
-        "hostname": "sw1",
-        "macAddress": "52:54:00:02:19:54",
-        "managementIpAddress": "10.10.20.175",
-        "softwareVersion": "17.12.1prd9",
-        "reachabilityStatus": "Reachable",
-        "upTime": "0:10:03.00",
-        "serialNumber": "CML12345UAD",
-        "platformId": "C9KV-UADP-8P",
-        "interfaceCount": 8,
-        "lastUpdated": "2025-06-16 00:29:04"
-    }
+  {
+    "id": "bfea531c-f8ff-476f-91c7-def7953b7706",
+    "hostname": "sw1",
+    "macAddress": "52:54:00:02:19:54",
+    "managementIpAddress": "10.10.20.175",
+    "softwareVersion": "17.12.1prd9",
+    "reachabilityStatus": "Reachable",
+    "upTime": "0:10:03.00",
+    "serialNumber": "CML12345UAD",
+    "platformId": "C9KV-UADP-8P",
+    "interfaceCount": 8,
+    "lastUpdated": "2025-06-16 00:29:04"
+  }
 ]
 ```
 
@@ -41,7 +40,7 @@ Example Response:
 
 `GET /network-monitor:devices/device={device_id}`
 Params:
-  `device_id: string (UUID)`
+`device_id: string (UUID)`
 
 Example Response:
 
@@ -65,7 +64,7 @@ Example Response:
 
 `GET /network-monitor:device-history/device={device_id}`
 Params:
-  `device_id: string (UUID)`
+`device_id: string (UUID)`
 
 Example Response:
 
@@ -86,7 +85,7 @@ Example Response:
 
 `GET /network-monitor:interfaces`
 Headers:
-  `Accept: application/yang-data+json`
+`Accept: application/yang-data+json`
 
 Example Response:
 
@@ -117,7 +116,7 @@ Example Response:
 
 `GET /network-monitor:interfaces/interface={interface_name}`
 Params:
-  `interface_name: string`
+`interface_name: string`
 
 Example Response:
 
