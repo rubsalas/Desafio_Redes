@@ -1,5 +1,12 @@
 # Network Monitor RESTCONF API Endpoints
 
+pip install fastapi
+
+pip install uvicorn
+
+pip install pyang
+
+
 ## Base URL: <http://localhost:8000/restconf/data>
 
 ## DEVICE ENDPOINTS
