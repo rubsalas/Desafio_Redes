@@ -1,0 +1,242 @@
+module network-monitor {
+  yang-version 1.1;
+  namespace "urn:cisco:network-monitor";
+  prefix netmon;
+
+  import ietf-yang-types {
+    prefix yang;
+  }
+  import ietf-inet-types {
+    prefix inet;
+  }
+
+  organization "Cisco";
+  contact "support@cisco.com";
+  description "YANG model for Network Monitoring System";
+
+  revision 2023-11-01 {
+    description "Initial version";
+  }
+
+  grouping interface-ip-grouping {
+    description "IP address grouping for interfaces";
+    leaf ip {
+      type inet:ip-address;
+      description "IP address";
+    }
+    leaf netmask {
+      type string;
+      description "Network mask or prefix length";
+    }
+  }
+
+  grouping interface-stats-grouping {
+    description "Interface statistics grouping";
+    leaf in-octets {
+      type yang:counter64;
+      description "Incoming octets";
+    }
+    leaf out-octets {
+      type yang:counter64;
+      description "Outgoing octets";
+    }
+    leaf in-errors {
+      type yang:counter32;
+      description "Incoming error packets";
+    }
+    leaf out-errors {
+      type yang:counter32;
+      description "Outgoing error packets";
+    }
+    leaf last-updated {
+      type yang:date-and-time;
+      description "Last update timestamp";
+    }
+  }
+
+  container interfaces {
+    description "Network interfaces container";
+    list interface {
+      key "name";
+      description "Network interface entry";
+      
+      leaf name {
+        type string;
+        description "Interface name";
+      }
+      leaf description {
+        type string;
+        description "Interface description";
+      }
+      leaf enabled {
+        type boolean;
+        description "Admin status (up/down)";
+      }
+      leaf oper-status {
+        type enumeration {
+          enum up;
+          enum down;
+          enum testing;
+          enum unknown;
+          enum dormant;
+          enum not-present;
+          enum lower-layer-down;
+        }
+        description "Operational status";
+      }
+      container ipv4 {
+        description "IPv4 configuration";
+        uses interface-ip-grouping;
+      }
+      container ipv6 {
+        description "IPv6 configuration";
+        uses interface-ip-grouping;
+      }
+      leaf speed {
+        type uint32;
+        units "Mbps";
+        description "Interface speed in Mbps";
+      }
+      container statistics {
+        description "Interface statistics";
+        uses interface-stats-grouping;
+      }
+    }
+  }
+
+  grouping alert-grouping {
+    description "Alert grouping";
+    leaf type {
+      type enumeration {
+        enum INTERFACE_DOWN;
+        enum NO_IP_ASSIGNED;
+        enum HIGH_ERROR_RATE;
+        enum HIGH_BANDWIDTH;
+        enum OTHER;
+      }
+      description "Alert type";
+    }
+    leaf message {
+      type string;
+      description "Alert message";
+    }
+    leaf severity {
+      type enumeration {
+        enum critical;
+        enum warning;
+        enum info;
+      }
+      description "Alert severity";
+    }
+    leaf timestamp {
+      type yang:date-and-time;
+      description "Alert timestamp";
+    }
+    leaf interface {
+      type string;
+      description "Related interface (if applicable)";
+    }
+  }
+
+  container alerts {
+    description "Current alerts container";
+    list alert {
+      key "timestamp type interface";
+      description "Alert entry";
+      uses alert-grouping;
+    }
+  }
+
+  grouping history-point-grouping {
+    description "History data point grouping";
+    leaf timestamp {
+      type yang:date-and-time;
+      description "Measurement timestamp";
+    }
+    leaf value {
+      type decimal64 {
+        fraction-digits 2;
+      }
+      description "Measured value";
+    }
+  }
+
+  container bandwidth-history {
+    description "Bandwidth usage history";
+    list interface-history {
+      key "interface-name";
+      description "Bandwidth history per interface";
+      
+      leaf interface-name {
+        type string;
+        description "Interface name";
+      }
+      list history-point {
+        key "timestamp";
+        description "Bandwidth measurement point";
+        uses history-point-grouping;
+      }
+    }
+  }
+
+  container error-history {
+    description "Error history";
+    list interface-history {
+      key "interface-name";
+      description "Error history per interface";
+      
+      leaf interface-name {
+        type string;
+        description "Interface name";
+      }
+      list history-point {
+        key "timestamp";
+        description "Error measurement point";
+        uses history-point-grouping;
+      }
+    }
+  }
+
+  container monitor-config {
+    description "Monitor configuration";
+    leaf polling-interval {
+      type uint32;
+      units "seconds";
+      default 60;
+      description "Polling interval in seconds";
+    }
+    leaf bandwidth-threshold {
+      type decimal64 {
+        fraction-digits 2;
+      }
+      units "percent";
+      default 70.00;
+      description "Bandwidth usage threshold for alerts";
+    }
+    leaf error-threshold {
+      type uint32;
+      default 5;
+      description "Error count threshold for alerts";
+    }
+    leaf running {
+      type boolean;
+      default true;
+      description "Monitor running status";
+    }
+  }
+
+  rpc force-update {
+    description "Force immediate data update";
+    output {
+      leaf result {
+        type string;
+        description "Update result message";
+      }
+    }
+  }
+
+  notification interface-alert {
+    description "Interface alert notification";
+    uses alert-grouping;
+  }
+}

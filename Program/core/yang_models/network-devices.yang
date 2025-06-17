@@ -1,0 +1,107 @@
+module network-devices {
+  yang-version 1.1;
+  namespace "urn:cisco:network-devices";
+  prefix netdev;
+
+  import ietf-yang-types { prefix yang; }
+  import ietf-inet-types { prefix inet; }
+
+  organization "Cisco";
+  contact "support@cisco.com";
+  description "YANG model for Network Devices";
+
+  revision 2023-11-01 {
+    description "Initial version";
+  }
+
+  container devices {
+    description "Network devices container";
+    list device {
+      key "id";
+      description "Network device entry";
+      
+      leaf id {
+        type string;
+        description "Device UUID";
+      }
+      leaf hostname {
+        type string;
+        description "Device hostname";
+      }
+      leaf managementIpAddress {
+        type inet:ip-address;
+        description "Management IP address";
+      }
+      leaf macAddress {
+        type yang:mac-address;
+        description "Base MAC address";
+      }
+      leaf softwareVersion {
+        type string;
+        description "Software version";
+      }
+      leaf reachabilityStatus {
+        type enumeration {
+          enum Reachable;
+          enum Unreachable;
+        }
+        description "Reachability status";
+      }
+      leaf upTime {
+        type string;
+        description "Uptime in human-readable format";
+      }
+      leaf serialNumber {
+        type string;
+        description "Device serial number";
+      }
+      leaf platformId {
+        type string;
+        description "Platform identifier";
+      }
+      leaf interfaceCount {
+        type uint32;
+        description "Number of interfaces";
+      }
+      leaf lastUpdated {
+        type yang:date-and-time;
+        description "Last update timestamp";
+      }
+    }
+  }
+
+  container device-history {
+    description "Device history data";
+    list device {
+      key "device-id";
+      description "History per device";
+      
+      leaf device-id {
+        type string;
+        description "Device UUID";
+      }
+      list history-point {
+        key "timestamp";
+        description "History data point";
+        
+        leaf timestamp {
+          type yang:date-and-time;
+          description "Measurement timestamp";
+        }
+        leaf reachability {
+          type string;
+          description "Reachability status";
+        }
+        leaf uptime {
+          type uint32;
+          units "seconds";
+          description "Uptime in seconds";
+        }
+        leaf interface_count {
+          type uint32;
+          description "Interface count";
+        }
+      }
+    }
+  }
+}
