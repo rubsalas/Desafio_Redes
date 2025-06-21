@@ -5,17 +5,17 @@ from datetime import datetime
 import fastapi
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, field_validator
 import uvicorn
 import pyang
 from pyang.repository import FileRepository
-from network_monitor import NetworkMonitor, Interface, Alert
+from network_monitor import NetworkMonitor, Alert
 
 # Configuración de la aplicación FastAPI
 app = fastapi.FastAPI(
     title="Network Monitor RESTCONF API",
     description="API RESTCONF para el sistema de monitoreo de red con validación YANG",
-    version="1.0.0",
+    version="2.0.0",
     servers=[{"url": "http://localhost:8000", "description": "Local development server"}],
     openapi_tags=[{
         "name": "network-monitor",
@@ -44,112 +44,8 @@ YANG_MODELS = [
 # Instancia del monitor de red
 monitor = NetworkMonitor()
 
-# Modelos Pydantic para la API
-class InterfaceIPModel(BaseModel):
-    ip: str
-    netmask: str
-
-    class Config:
-        json_schema_extra = {
-            "yang-type": "grouping",
-            "yang-module": "network-monitor",
-            "yang-grouping": "interface-ip-grouping"
-        }
-
-class InterfaceStatsModel(BaseModel):
-    in_octets: int
-    out_octets: int
-    in_errors: int
-    out_errors: int
-    last_updated: str
-
-    class Config:
-        json_schema_extra = {
-            "yang-type": "grouping",
-            "yang-module": "network-monitor",
-            "yang-grouping": "interface-stats-grouping"
-        }
-
-class InterfaceModel(BaseModel):
-    name: str
-    description: str
-    enabled: bool
-    oper_status: str
-    ipv4: Optional[InterfaceIPModel] = None
-    ipv6: Optional[InterfaceIPModel] = None
-    speed: Optional[int] = None
-    stats: Optional[InterfaceStatsModel] = None
-
-    class Config:
-        json_schema_extra = {
-            "yang-type": "list",
-            "yang-module": "network-monitor",
-            "yang-path": "/interfaces/interface"
-        }
-
-class AlertModel(BaseModel):
-    type: str
-    message: str
-    severity: str
-    timestamp: str
-    interface: Optional[str] = None
-
-    class Config:
-        json_schema_extra = {
-            "yang-type": "grouping",
-            "yang-module": "network-monitor",
-            "yang-grouping": "alert-grouping"
-        }
-
-class BandwidthHistoryPoint(BaseModel):
-    timestamp: str
-    value: float
-
-    class Config:
-        json_schema_extra = {
-            "yang-type": "grouping",
-            "yang-module": "network-monitor",
-            "yang-grouping": "history-point-grouping"
-        }
-
-class ErrorHistoryPoint(BaseModel):
-    timestamp: str
-    value: int
-
-    class Config:
-        json_schema_extra = {
-            "yang-type": "grouping",
-            "yang-module": "network-monitor",
-            "yang-grouping": "history-point-grouping"
-        }
-
-class MonitorConfigModel(BaseModel):
-    polling_interval: int
-    bandwidth_threshold: float
-    error_threshold: int
-    running: bool
-    history_limit: Optional[int] = 1440
-    alert_retention: Optional[int] = 24
-
-    class Config:
-        json_schema_extra = {
-            "yang-type": "container",
-            "yang-module": "network-monitor",
-            "yang-path": "/monitor-config"
-        }
-
-class UpdateResponse(BaseModel):
-    result: str
-
-    class Config:
-        json_schema_extra = {
-            "yang-type": "rpc-output",
-            "yang-module": "network-monitor",
-            "yang-rpc": "force-update"
-        }
-        
 class DeviceModel(BaseModel):
-    id: Optional[str] = None
+    id: str
     hostname: str
     managementIpAddress: str
     macAddress: str
@@ -162,151 +58,138 @@ class DeviceModel(BaseModel):
     lastUpdated: str
     description: Optional[str] = None
     role: Optional[str] = None
+    vendor: Optional[str] = None
+    type: Optional[str] = None
+    family: Optional[str] = None
+    series: Optional[str] = None
+    softwareType: Optional[str] = None
+    deviceSupportLevel: Optional[str] = None
+    collectionStatus: Optional[str] = None
+    bootDateTime: Optional[str] = None
 
     class Config:
         json_schema_extra = {
             "yang-type": "list",
-            "yang-module": "network-monitor",
+            "yang-module": "network-devices",
             "yang-path": "/devices/device"
         }
 
-    @validator('interfaceCount', pre=True)
+    @field_validator('interfaceCount', mode='before')
     def parse_interface_count(cls, v):
-        try:
-            return int(v)
-        except (ValueError, TypeError):
-            return 0
+        return int(v) if str(v).isdigit() else 0
 
-# Funciones de validación YANG
-def validate_with_yang(data, model_name, path=None):
-    """Valida los datos contra un modelo YANG específico"""
-    try:
-        ctx = pyang.Context()
-        repo = FileRepository(YANG_MODELS_DIR)
-        ctx.add_module_repository(repo)
-        
-        for model in YANG_MODELS:
-            ctx.add_module(model.split('.')[0])
-        
-        module = ctx.get_module(model_name)
-        if not module:
-            raise ValueError(f"Modelo YANG {model_name} no encontrado")
-        
-        # En una implementación real, aquí iría la validación detallada
-        # usando pyangbind o similar para validar la estructura completa
-        
-        return True
-    except Exception as e:
-        raise fastapi.HTTPException(
-            status_code=fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error en validación YANG: {str(e)}"
-        )
+class AlertModel(BaseModel):
+    type: str
+    message: str
+    severity: str
+    timestamp: str
+    device_id: Optional[str] = None
+
+    class Config:
+        json_schema_extra = {
+            "yang-type": "list",
+            "yang-module": "network-alerts",
+            "yang-path": "alerts/alert"
+        }
+
+class HistoryPointModel(BaseModel):
+    timestamp: str
+    reachability: str
+    uptime: str
+    interface_count: int
+    software_version: str
+
+    class Config:
+        json_schema_extra = {
+            "yang-type": "list",
+            "yang-module": "network-history",
+            "yang-path": "/device-history/point"
+        }
+
+class MonitorConfigModel(BaseModel):
+    polling_interval: int
+    history_limit: int
+    running: bool
+
+    class Config:
+        json_schema_extra = {
+            "yang-type": "container",
+            "yang-module": "network-monitor",
+            "yang-path": "/monitor-config"
+        }
 
 # Iniciar el monitor en segundo plano
 monitor_thread = threading.Thread(target=monitor.start_monitoring)
 monitor_thread.daemon = True
 monitor_thread.start()
 
-# Endpoints de la API
-@app.get("/restconf/data/network-monitor:interfaces", 
-         response_model=List[InterfaceModel],
-         tags=["network-monitor"])
-def get_interfaces():
-    """Obtener lista de todas las interfaces de red"""
-    if not validate_with_yang(monitor.interfaces, "network-monitor", "/interfaces"):
-        raise fastapi.HTTPException(
-            status_code=fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Los datos no cumplen con el modelo YANG"
-        )
-    return monitor.interfaces
+## Endpoints de Dispositivos
+@app.get("/restconf/data/network-devices:devices", 
+         response_model=List[DeviceModel],
+         tags=["devices"])
+def get_devices():
+    """Obtener todos los dispositivos monitoreados"""
+    if not monitor.devices:
+        if not monitor.fetch_devices():
+            raise fastapi.HTTPException(
+                status_code=fastapi.status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="No se pudieron obtener los dispositivos"
+            )
+    return monitor.devices
 
-@app.get("/restconf/data/network-monitor:interfaces/interface={interface_name}", 
-         response_model=InterfaceModel,
-         tags=["network-monitor"])
-def get_interface(interface_name: str):
-    """Obtener información detallada de una interfaz específica"""
-    for interface in monitor.interfaces:
-        if interface.name == interface_name:
-            if not validate_with_yang(interface, "network-monitor", f"/interfaces/interface={interface_name}"):
-                raise fastapi.HTTPException(
-                    status_code=fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Los datos no cumplen con el modelo YANG"
-                )
-            return interface
-    raise fastapi.HTTPException(status_code=404, detail="Interfaz no encontrada")
+@app.get("/restconf/data/network-devices:devices/device={device_id}", 
+         response_model=DeviceModel,
+         tags=["devices"])
+def get_device(device_id: str):
+    """Obtener un dispositivo específico"""
+    device = next((d for d in monitor.devices if d.id == device_id), None)
+    if not device:
+        raise fastapi.HTTPException(status_code=404, detail="Dispositivo no encontrado")
+    return device
 
-@app.get("/restconf/data/network-monitor:alerts", 
+@app.get("/restconf/data/network-devices:device-history/device={device_id}", 
+         response_model=List[HistoryPointModel],
+         tags=["devices"])
+def get_device_history(device_id: str):
+    """Obtener historial de un dispositivo"""
+    if device_id not in monitor.device_history:
+        raise fastapi.HTTPException(status_code=404, detail="Historial no encontrado")
+    return monitor.device_history[device_id]
+
+## Endpoints de Alertas
+@app.get("/restconf/data/network-alerts:alerts", 
          response_model=List[AlertModel],
-         tags=["network-monitor"])
+         tags=["alerts"])
 def get_alerts():
-    """Obtener todas las alertas actuales"""
-    if not validate_with_yang(monitor.alerts, "network-monitor", "/alerts"):
-        raise fastapi.HTTPException(
-            status_code=fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Los datos no cumplen con el modelo YANG"
-        )
+    """Obtener todas las alertas activas"""
     return monitor.alerts
 
-@app.get("/restconf/data/network-monitor:bandwidth-history", 
-         response_model=Dict[str, List[BandwidthHistoryPoint]],
-         tags=["network-monitor"])
-def get_bandwidth_history():
-    """Obtener el historial de uso de ancho de banda por interfaz"""
-    if not validate_with_yang(monitor.bandwidth_history, "network-monitor", "/bandwidth-history"):
-        raise fastapi.HTTPException(
-            status_code=fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Los datos no cumplen con el modelo YANG"
-        )
-    return monitor.bandwidth_history
-
-@app.get("/restconf/data/network-monitor:error-history", 
-         response_model=Dict[str, List[ErrorHistoryPoint]],
-         tags=["network-monitor"])
-def get_error_history():
-    """Obtener el historial de errores por interfaz"""
-    if not validate_with_yang(monitor.error_history, "network-monitor", "/error-history"):
-        raise fastapi.HTTPException(
-            status_code=fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Los datos no cumplen con el modelo YANG"
-        )
-    return monitor.error_history
-
+## Endpoints de Control
 @app.get("/restconf/data/network-monitor:status", 
          response_model=MonitorConfigModel,
-         tags=["network-monitor"])
+         tags=["monitor"])
 def get_monitor_status():
-    """Obtener el estado actual del monitor"""
-    status_data = {
+    """Obtener estado del monitor"""
+    return {
         "polling_interval": monitor.polling_interval,
-        "bandwidth_threshold": monitor.bandwidth_threshold,
-        "error_threshold": monitor.error_threshold,
-        "running": monitor.running,
-        "history_limit": monitor.history_limit
+        "history_limit": monitor.history_limit,
+        "running": monitor.running
     }
-    if not validate_with_yang(status_data, "network-monitor", "/monitor-config"):
-        raise fastapi.HTTPException(
-            status_code=fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Los datos no cumplen con el modelo YANG"
-        )
-    return status_data
 
 @app.post("/restconf/data/network-monitor:update", 
-          response_model=UpdateResponse,
-          tags=["network-monitor"])
+          tags=["monitor"])
 def force_update():
-    """Forzar una actualización inmediata de los datos"""
-    monitor.update_network_data()
-    return {"result": "Datos actualizados manualmente"}
+    """Forzar actualización de datos"""
+    monitor.fetch_devices()
+    return {"message": "Actualización forzada iniciada"}
 
 @app.put("/restconf/data/network-monitor:config", 
          response_model=MonitorConfigModel,
-         tags=["network-monitor"])
+         tags=["monitor"])
 def update_config(config: MonitorConfigModel):
-    """Actualizar la configuración del monitor"""
+    """Actualizar configuración del monitor"""
     monitor.polling_interval = config.polling_interval
-    monitor.bandwidth_threshold = config.bandwidth_threshold
-    monitor.error_threshold = config.error_threshold
-    monitor.history_limit = config.history_limit or monitor.history_limit
+    monitor.history_limit = config.history_limit
     
     if config.running and not monitor.running:
         monitor.start_monitoring()
@@ -315,9 +198,10 @@ def update_config(config: MonitorConfigModel):
     
     return get_monitor_status()
 
+
+## Endpoint de descubrimiento RESTCONF
 @app.get("/.well-known/host-meta", include_in_schema=False)
 def get_host_meta():
-    """Endpoint de descubrimiento RESTCONF"""
     return JSONResponse(
         content={
             "XRD": {
@@ -332,76 +216,5 @@ def get_host_meta():
         }
     )
 
-@app.get("/restconf/data", include_in_schema=False)
-def get_root():
-    """Root resource para RESTCONF"""
-    return JSONResponse(
-        content={
-            "ietf-restconf:restconf": {
-                "data": {},
-                "operations": {},
-                "yang-library-version": "2016-06-21"
-            }
-        }
-    )
-
-@app.get("/restconf/data/network-monitor:devices", 
-         response_model=List[DeviceModel],
-         tags=["network-monitor"])
-def get_devices():
-    """Obtener lista de todos los dispositivos"""
-    try:
-        if not monitor.devices:
-            if not monitor.fetch_devices():
-                raise fastapi.HTTPException(
-                    status_code=fastapi.status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="No se pudieron obtener los dispositivos"
-                )
-        
-        return [
-            DeviceModel(
-                id=device.id,
-                hostname=device.hostname,
-                managementIpAddress=device.managementIpAddress,
-                macAddress=device.macAddress,
-                softwareVersion=device.softwareVersion,
-                reachabilityStatus=device.reachabilityStatus,
-                upTime=device.upTime,
-                serialNumber=device.serialNumber,
-                platformId=device.platformId,
-                interfaceCount=device.interfaceCount,
-                lastUpdated=device.lastUpdated,
-                description=device.description,
-                role=device.role
-            ) for device in monitor.devices
-        ]
-    except Exception as e:
-        raise fastapi.HTTPException(
-            status_code=fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error al procesar dispositivos: {str(e)}"
-        )
-
-@app.get("/restconf/data/network-monitor:devices/device={device_id}", 
-         response_model=DeviceModel,
-         tags=["network-monitor"])
-def get_device(device_id: str):
-    """Obtener información de un dispositivo específico"""
-    for device in monitor.devices:
-        if device.id == device_id:
-            return device
-    raise fastapi.HTTPException(status_code=404, detail="Dispositivo no encontrado")
-
-@app.get("/restconf/data/network-monitor:device-history/device={device_id}", 
-         tags=["network-monitor"])
-def get_device_history(device_id: str):
-    """Obtener historial de un dispositivo"""
-    if device_id not in monitor.device_history:
-        raise fastapi.HTTPException(status_code=404, detail="Historial no encontrado")
-    return monitor.device_history[device_id]
-
 if __name__ == "__main__":
-    if not os.path.exists(YANG_MODELS_DIR):
-        os.makedirs(YANG_MODELS_DIR)
-        print(f"Directorio {YANG_MODELS_DIR} creado.")
-    
     uvicorn.run(app, host="127.0.0.1", port=8000)

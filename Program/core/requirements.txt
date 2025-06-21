@@ -2,8 +2,8 @@
 requests>=2.25.1
 matplotlib>=3.3.4
 dataclasses; python_version < "3.7"
-fastapi==0.95.2
-pydantic==1.10.7
+fastapi[standard]
+pydantic[standard]
 pyang==2.5.3
 python-multipart==0.0.6
 pyangbind==0.8.1
