@@ -1,77 +1,75 @@
-# Monitor de Red con RESTCONF y YANG
+# Network Device Monitor (Cisco DNA RESTCONF)
 
-Este es el Trabajo Final del curso CE-5301 Redes de Computadores del Programa de Ingeniería en Computadores del Instituto Tecnológico de Costa Rica, Semestre I 2025. El proyecto explora la programabilidad basada en modelos mediante el uso de RESTCONF y modelos YANG aplicados al monitoreo de redes modernas sobre infraestructura Cisco.
-
-## Características Principales
+Este script en Python implementa un sistema de monitoreo en tiempo real para dispositivos de red usando la API RESTCONF de Cisco DNA Center. Extrae información de dispositivos, genera reportes periódicos, detecta alertas críticas y guarda datos históricos de rendimiento.
 
 - Monitoreo continuo de interfaces de red
 - Detección de fallas y anomalías mediante alertas inteligentes
 - Recolección de estadísticas de red mediante RESTCONF
 - Generación periódica de reportes (JSON y visuales)
 - Basado en estándares abiertos: RESTCONF, YANG
-- Adaptado a formato de referencia CatalystData.json
+- # Adaptado a formato de referencia CatalystData.json
 
-## Configuración Básica
+## Funcionalidades
 
-```python
-BASE_URL = "https://sandbox-iosxe-latest-1.cisco.com/restconf/data"
+- Consulta periódica de dispositivos de red mediante Cisco DNA RESTCONF.
+- Almacenamiento histórico de métricas por dispositivo.
+- Detección automática de alertas:
+  - Dispositivos no alcanzables.
+  - Dispositivos no soportados.
+  - Problemas en la recolección de datos.
+  - Reinicios recientes.
+- Generación de reportes automáticos:
+  - Tabla de dispositivos (`devices_table.json`).
+  - Reporte de alcanzabilidad histórica (`reachability_history.png`).
+  - Alertas activas (`alerts_report.json`).
 
-HEADERS = {
-    "Accept": "application/yang-data+json",
-    "Content-Type": "application/yang-data+json",
-    "Authorization": "Basic ZGV2ZWxvcGVyOkMxc2NvMTIzNDU="
-}
+## Requisitos
+
+- Python 3.7 o superior
+- Acceso a Cisco DNA Center con RESTCONF habilitado
+- Token de autenticación válido para la API
+
+## Instalación
+
+Ejecuta el siguiente comando para instalar las dependencias necesarias:
+
+```bash
+pip install requests matplotlib
 ```
 
-## Modelos de Datos
+## Configuración
 
-```python
-@dataclass
-class InterfaceIP:
-    ip: str
-    netmask: str
+Antes de ejecutar el script, edita las variables en el código:
 
-@dataclass
-class InterfaceStats:
-    in_octets: int
-    out_octets: int
-    in_errors: int
-    out_errors: int
-    last_updated: str
+- `BASE_URL`: URL base de la API RESTCONF de Cisco DNA Center.
+- `HEADERS`: encabezados HTTP, incluyendo el token en `X-Auth-Token`.
 
-@dataclass
-class Interface:
-    name: str
-    description: str
-    enabled: bool
-    oper_status: str
-    ipv4: Optional[InterfaceIP] = None
-    ipv6: Optional[InterfaceIP] = None
-    speed: Optional[int] = None
-    stats: Optional[InterfaceStats] = None
+Opcionalmente, puedes modificar:
 
-@dataclass
-class Alert:
-    type: str
-    message: str
-    severity: str
-    timestamp: str
-    interface: Optional[str] = None
+- `POLLING_INTERVAL`: intervalo en segundos entre cada consulta (por defecto 60).
+- `HISTORY_LIMIT`: cantidad máxima de registros históricos por dispositivo.
+
+## Uso
+
+Para iniciar el monitor, ejecuta:
+
+```bash
+python monitor.py
 ```
 
-## Estructura del Monitor
+El monitor se ejecutará indefinidamente hasta que presiones `Ctrl + C` para detenerlo.
 
-### 1. Inicialización y Control
+## Archivos generados
 
-```python
-def start_monitoring(self):
-def stop_monitoring(self):
-def _monitoring_loop(self):
-```
+- `devices_table.json`: contiene una tabla con información actualizada de dispositivos.
+- `alerts_report.json`: reporte con alertas detectadas en el último ciclo.
+- `reachability_history.png`: gráfico con el estado histórico de alcanzabilidad por dispositivo.
 
-- Ejecuta la actualización periódica en un hilo separado
+- # Ejecuta la actualización periódica en un hilo separado
 
-### 2. Recolección de Datos
+## Seguridad
+
+El script desactiva la verificación SSL (`verify=False`) para evitar errores con certificados autofirmados. Se recomienda usar en entornos controlados o adaptar para validar certificados.
 
 ```python
 def fetch_interfaces(self):
