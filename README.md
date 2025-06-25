@@ -329,7 +329,7 @@ Example Response: (?)
 
 `GET /network-monitor:status`
 
-Example Response: (?)
+Example Response:
 
 ```json
 {
